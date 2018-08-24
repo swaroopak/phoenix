@@ -17,6 +17,9 @@
  */
 package org.apache.phoenix.jdbc;
 
+import org.apache.phoenix.util.PhoenixRuntime;
+
+import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -25,16 +28,21 @@ public class LoggingPhoenixStatement extends DelegateStatement {
 
     private PhoenixMetricsLog phoenixMetricsLog;
     private String sql;
+    private PhoenixStatement stmt;
     
     public LoggingPhoenixStatement(Statement stmt, PhoenixMetricsLog phoenixMetricsLog) {
         super(stmt);
+        this.stmt = (PhoenixStatement)stmt;
         this.phoenixMetricsLog = phoenixMetricsLog;
     }
 
     @Override
     public boolean execute(String sql) throws SQLException {
+        boolean result;
         this.sql = sql;
-        return super.execute(sql);
+        result = super.execute(sql);
+        this.loggingAutoCommitHelper();
+        return result;
     }
 
     @Override
@@ -45,8 +53,11 @@ public class LoggingPhoenixStatement extends DelegateStatement {
 
     @Override
     public int executeUpdate(String sql) throws SQLException {
+        int result;
         this.sql = sql;
-        return super.executeUpdate(sql);
+        result = super.executeUpdate(sql);
+        this.loggingAutoCommitHelper();
+        return result;
     }
 
     @Override
@@ -57,6 +68,17 @@ public class LoggingPhoenixStatement extends DelegateStatement {
     @Override
     public ResultSet getGeneratedKeys() throws SQLException {
         return new LoggingPhoenixResultSet(super.getGeneratedKeys(), phoenixMetricsLog, this.sql);
+    }
+
+    private void loggingAutoCommitHelper() throws SQLException {
+        Connection conn = this.getConnection();
+
+        if(stmt.getUpdateOperation().isMutation() && conn.getAutoCommit()){
+            phoenixMetricsLog.logWriteMetricsfoForMutationsSinceLastReset(PhoenixRuntime.getWriteMetricInfoForMutationsSinceLastReset(conn));
+            phoenixMetricsLog.logReadMetricInfoForMutationsSinceLastReset(PhoenixRuntime.getReadMetricInfoForMutationsSinceLastReset(conn));
+            PhoenixRuntime.resetMetrics(conn);
+        }
+        return;
     }
 
 }
