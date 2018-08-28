@@ -194,6 +194,37 @@ public class PhoenixLoggingMetricsIT extends BasePhoenixMetricsIT {
         assertTrue(logRequestReadMetricsFuncCallCount == 1);
     }
 
+    @Test
+    public void testPhoenixMetricsLoggedOnAutoCommit() throws Exception {
+        // Autocommit is turned on explicitly
+        loggedConn.setAutoCommit(true);
+        //with executeUpdate() method
+        // run SELECT to verify read metrics are logged
+        String query = "SELECT * FROM " + tableName1;
+        verifyQueryLevelMetricsLogging(query);
+        // run UPSERT SELECT to verify mutation metrics are logged
+        String upsertSelect = "UPSERT INTO " + tableName2 + " SELECT * FROM " + tableName1;
+        loggedConn.createStatement().executeUpdate(upsertSelect);
+        // Autocommit is turned on explicitly
+        // Hence mutation metrics are expected during implicit commit
+        assertTrue("Mutation write metrics are not logged for " + tableName2,
+                mutationWriteMetricsMap.size()  > 0);
+        assertTrue("Mutation read metrics for not found for " + tableName1,
+                mutationReadMetricsMap.get(tableName1).size() > 0);
+        //with execute() method
+        loggedConn.createStatement().execute(upsertSelect);
+        // Autocommit is turned on explicitly
+        // Hence mutation metrics are expected during implicit commit
+        assertTrue("Mutation write metrics are not logged for " + tableName2,
+                mutationWriteMetricsMap.size()  > 0);
+        assertTrue("Mutation read metrics for not found for " + tableName1,
+                mutationReadMetricsMap.get(tableName1).size() > 0);
+
+
+
+        clearAllTestMetricMaps();
+    }
+
     void clearAllTestMetricMaps() {
         overAllQueryMetricsMap.clear();
         requestReadMetricsMap.clear();
