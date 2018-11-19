@@ -86,6 +86,7 @@ import org.apache.phoenix.schema.IllegalDataException;
 import org.apache.phoenix.schema.MetaDataClient;
 import org.apache.phoenix.schema.PColumn;
 import org.apache.phoenix.schema.PColumnImpl;
+import org.apache.phoenix.schema.PIndexState;
 import org.apache.phoenix.schema.PName;
 import org.apache.phoenix.schema.PNameFactory;
 import org.apache.phoenix.schema.PTable;
@@ -372,6 +373,9 @@ public class UpsertCompiler {
         } else if (table.isTransactional() && connection.getSCN() != null) {
             throw new SQLExceptionInfo.Builder(SQLExceptionCode.CANNOT_SPECIFY_SCN_FOR_TXN_TABLE).setSchemaName(schemaName)
             .setTableName(tableName).build().buildException();
+        } else if (!table.isImmutableRows() && connection.getSCN() != null && (table.getIndexType() == IndexType.GLOBAL || table.getIndexType() == IndexType.LOCAL)) {
+            throw new SQLExceptionInfo.Builder(SQLExceptionCode.CANNOT_SPECIFY_SCN_FOR_MUTABLE_TABLE).setSchemaName(schemaName)
+                    .setTableName(tableName).build().buildException();
         }
         boolean isSalted = table.getBucketNum() != null;
         isTenantSpecific = table.isMultiTenant() && connection.getTenantId() != null;
