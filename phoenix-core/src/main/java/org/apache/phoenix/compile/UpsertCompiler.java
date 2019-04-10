@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import com.google.common.collect.ImmutableList;
@@ -110,6 +111,7 @@ import org.apache.phoenix.schema.types.PVarbinary;
 import org.apache.phoenix.util.ByteUtil;
 import org.apache.phoenix.util.ExpressionUtil;
 import org.apache.phoenix.util.IndexUtil;
+import org.apache.phoenix.util.ReadOnlyProps;
 import org.apache.phoenix.util.ScanUtil;
 import org.apache.phoenix.util.SchemaUtil;
 
@@ -119,62 +121,14 @@ import com.google.common.collect.Sets;
 
 public class UpsertCompiler {
 
-    private static void setValues(byte[][] values, int[] pkSlotIndex, int[] columnIndexes,
-            PTable table, MultiRowMutationState mutation,
-            PhoenixStatement statement, boolean useServerTimestamp, IndexMaintainer maintainer,
-            byte[][] viewConstants, byte[] onDupKeyBytes, int numSplColumns) throws SQLException {
-        long columnValueSize = 0;
-        Map<PColumn,byte[]> columnValues = Maps.newHashMapWithExpectedSize(columnIndexes.length);
-        byte[][] pkValues = new byte[table.getPKColumns().size()][];
-        // If the table uses salting, the first byte is the salting byte, set to an empty array
-        // here and we will fill in the byte later in PRowImpl.
-        if (table.getBucketNum() != null) {
-            pkValues[0] = new byte[] {0};
-        }
-        for(int i = 0; i < numSplColumns; i++) {
-            pkValues[i + (table.getBucketNum() != null ? 1 : 0)] = values[i];
-        }
-        Long rowTimestamp = null; // case when the table doesn't have a row timestamp column
-        RowTimestampColInfo rowTsColInfo = new RowTimestampColInfo(useServerTimestamp, rowTimestamp);
-        for (int i = 0, j = numSplColumns; j < values.length; j++, i++) {
-            byte[] value = values[j];
-            PColumn column = table.getColumns().get(columnIndexes[i]);
-            if (SchemaUtil.isPKColumn(column)) {
-                pkValues[pkSlotIndex[i]] = value;
-                if (SchemaUtil.getPKPosition(table, column) == table.getRowTimestampColPos()) {
-                    if (!useServerTimestamp) {
-                        PColumn rowTimestampCol = table.getPKColumns().get(table.getRowTimestampColPos());
-                        rowTimestamp = PLong.INSTANCE.getCodec().decodeLong(value, 0, rowTimestampCol.getSortOrder());
-                        if (rowTimestamp < 0) {
-                            throw new IllegalDataException("Value of a column designated as ROW_TIMESTAMP cannot be less than zero");
-                        }
-                        rowTsColInfo = new RowTimestampColInfo(useServerTimestamp, rowTimestamp);
-                    } 
-                }
-            } else {
-                columnValues.put(column, value);
-                columnValueSize += (column.getEstimatedSize() + value.length);
-            }
-        }
-        ImmutableBytesPtr ptr = new ImmutableBytesPtr();
-        table.newKey(ptr, pkValues);
-        if (table.getIndexType() == IndexType.LOCAL && maintainer != null) {
-            byte[] rowKey = maintainer.buildDataRowKey(ptr, viewConstants);
-            HRegionLocation region =
-                    statement.getConnection().getQueryServices()
-                            .getTableRegionLocation(table.getParentName().getBytes(), rowKey);
-            byte[] regionPrefix =
-                    region.getRegionInfo().getStartKey().length == 0 ? new byte[region
-                            .getRegionInfo().getEndKey().length] : region.getRegionInfo()
-                            .getStartKey();
-            if (regionPrefix.length != 0) {
-                ptr.set(ScanRanges.prefixKey(ptr.get(), 0, ptr.getLength(), regionPrefix,
-                    regionPrefix.length));
-            }
-        } 
-        mutation.put(ptr, new RowMutationState(columnValues, columnValueSize, statement.getConnection().getStatementExecutionCounter(), rowTsColInfo, onDupKeyBytes));
+    private final PhoenixStatement statement;
+    private final Operation operation;
+
+    public UpsertCompiler(PhoenixStatement statement, Operation operation) {
+        this.statement = statement;
+        this.operation = operation;
     }
-    
+
     public static MutationState upsertSelect(StatementContext childContext, TableRef tableRef, RowProjector projector,
             ResultIterator iterator, int[] columnIndexes, int[] pkSlotIndexes, boolean useServerTimestamp, boolean prefixSysColValues) throws SQLException {
         PhoenixStatement statement = childContext.getStatement();
@@ -262,65 +216,60 @@ public class UpsertCompiler {
         }
     }
 
-    private static class UpsertingParallelIteratorFactory extends MutatingParallelIteratorFactory {
-        private RowProjector projector;
-        private int[] columnIndexes;
-        private int[] pkSlotIndexes;
-        private final TableRef tableRef;
-        private final boolean useSeverTimestamp;
-
-        private UpsertingParallelIteratorFactory (PhoenixConnection connection, TableRef tableRef, boolean useServerTimestamp) {
-            super(connection);
-            this.tableRef = tableRef;
-            this.useSeverTimestamp = useServerTimestamp;
+    private static void setValues(byte[][] values, int[] pkSlotIndex, int[] columnIndexes,
+                                  PTable table, MultiRowMutationState mutation,
+                                  PhoenixStatement statement, boolean useServerTimestamp, IndexMaintainer maintainer,
+                                  byte[][] viewConstants, byte[] onDupKeyBytes, int numSplColumns) throws SQLException {
+        long columnValueSize = 0;
+        Map<PColumn,byte[]> columnValues = Maps.newHashMapWithExpectedSize(columnIndexes.length);
+        byte[][] pkValues = new byte[table.getPKColumns().size()][];
+        // If the table uses salting, the first byte is the salting byte, set to an empty array
+        // here and we will fill in the byte later in PRowImpl.
+        if (table.getBucketNum() != null) {
+            pkValues[0] = new byte[] {0};
         }
-
-        @Override
-        protected MutationState mutate(StatementContext parentContext, ResultIterator iterator, PhoenixConnection connection) throws SQLException {
-            if (parentContext.getSequenceManager().getSequenceCount() > 0) {
-                throw new IllegalStateException("Cannot pipeline upsert when sequence is referenced");
+        for(int i = 0; i < numSplColumns; i++) {
+            pkValues[i + (table.getBucketNum() != null ? 1 : 0)] = values[i];
+        }
+        Long rowTimestamp = null; // case when the table doesn't have a row timestamp column
+        RowTimestampColInfo rowTsColInfo = new RowTimestampColInfo(useServerTimestamp, rowTimestamp);
+        for (int i = 0, j = numSplColumns; j < values.length; j++, i++) {
+            byte[] value = values[j];
+            PColumn column = table.getColumns().get(columnIndexes[i]);
+            if (SchemaUtil.isPKColumn(column)) {
+                pkValues[pkSlotIndex[i]] = value;
+                if (SchemaUtil.getPKPosition(table, column) == table.getRowTimestampColPos()) {
+                    if (!useServerTimestamp) {
+                        PColumn rowTimestampCol = table.getPKColumns().get(table.getRowTimestampColPos());
+                        rowTimestamp = PLong.INSTANCE.getCodec().decodeLong(value, 0, rowTimestampCol.getSortOrder());
+                        if (rowTimestamp < 0) {
+                            throw new IllegalDataException("Value of a column designated as ROW_TIMESTAMP cannot be less than zero");
+                        }
+                        rowTsColInfo = new RowTimestampColInfo(useServerTimestamp, rowTimestamp);
+                    }
+                }
+            } else {
+                columnValues.put(column, value);
+                columnValueSize += (column.getEstimatedSize() + value.length);
             }
-            PhoenixStatement statement = new PhoenixStatement(connection);
-            /*
-             * We don't want to collect any read metrics within the child context. This is because any read metrics that
-             * need to be captured are already getting collected in the parent statement context enclosed in the result
-             * iterator being used for reading rows out.
-             */
-            StatementContext childContext = new StatementContext(statement, false);
-            // Clone the row projector as it's not thread safe and would be used simultaneously by
-            // multiple threads otherwise.
-            MutationState state = upsertSelect(childContext, tableRef, projector.cloneIfNecessary(), iterator, columnIndexes, pkSlotIndexes, useSeverTimestamp, false);
-            return state;
         }
-        
-        public void setRowProjector(RowProjector projector) {
-            this.projector = projector;
+        ImmutableBytesPtr ptr = new ImmutableBytesPtr();
+        table.newKey(ptr, pkValues);
+        if (table.getIndexType() == IndexType.LOCAL && maintainer != null) {
+            byte[] rowKey = maintainer.buildDataRowKey(ptr, viewConstants);
+            HRegionLocation region =
+                    statement.getConnection().getQueryServices()
+                            .getTableRegionLocation(table.getParentName().getBytes(), rowKey);
+            byte[] regionPrefix =
+                    region.getRegionInfo().getStartKey().length == 0 ? new byte[region
+                            .getRegionInfo().getEndKey().length] : region.getRegionInfo()
+                            .getStartKey();
+            if (regionPrefix.length != 0) {
+                ptr.set(ScanRanges.prefixKey(ptr.get(), 0, ptr.getLength(), regionPrefix,
+                        regionPrefix.length));
+            }
         }
-        public void setColumnIndexes(int[] columnIndexes) {
-            this.columnIndexes = columnIndexes;
-        }
-        public void setPkSlotIndexes(int[] pkSlotIndexes) {
-            this.pkSlotIndexes = pkSlotIndexes;
-        }
-    }
-    
-    private final PhoenixStatement statement;
-    private final Operation operation;
-    
-    public UpsertCompiler(PhoenixStatement statement, Operation operation) {
-        this.statement = statement;
-        this.operation = operation;
-    }
-    
-    private static LiteralParseNode getNodeForRowTimestampColumn(PColumn col) {
-        PDataType type = col.getDataType();
-        long dummyValue = 0L;
-        if (type.isCoercibleTo(PTimestamp.INSTANCE)) {
-            return new LiteralParseNode(new Timestamp(dummyValue), PTimestamp.INSTANCE);
-        } else if (type == PLong.INSTANCE || type == PUnsignedLong.INSTANCE) {
-            return new LiteralParseNode(dummyValue, PLong.INSTANCE);
-        }
-        throw new IllegalArgumentException();
+        mutation.put(ptr, new RowMutationState(columnValues, columnValueSize, statement.getConnection().getStatementExecutionCounter(), rowTsColInfo, onDupKeyBytes));
     }
     
     public MutationPlan compile(UpsertStatement upsert) throws SQLException {
@@ -903,48 +852,6 @@ public class UpsertCompiler {
         }
         return false;
     }
-    
-    private static class UpdateColumnCompiler extends ExpressionCompiler {
-        private PColumn column;
-        
-        private UpdateColumnCompiler(StatementContext context) {
-            super(context);
-        }
-
-        public void setColumn(PColumn column) {
-            this.column = column;
-        }
-        
-        @Override
-        public Expression visit(BindParseNode node) throws SQLException {
-            if (isTopLevel()) {
-                context.getBindManager().addParamMetaData(node, column);
-                Object value = context.getBindManager().getBindValue(node);
-                return LiteralExpression.newConstant(value, column.getDataType(), column.getSortOrder(), Determinism.ALWAYS);
-            }
-            return super.visit(node);
-        }    
-        
-        @Override
-        public Expression visit(LiteralParseNode node) throws SQLException {
-            if (isTopLevel()) {
-                return LiteralExpression.newConstant(node.getValue(), column.getDataType(), column.getSortOrder(), Determinism.ALWAYS);
-            }
-            return super.visit(node);
-        }
-    }
-    
-    private static class UpsertValuesCompiler extends UpdateColumnCompiler {
-        private UpsertValuesCompiler(StatementContext context) {
-            super(context);
-        }
-        
-        @Override
-        public Expression visit(SequenceValueParseNode node) throws SQLException {
-            return context.getSequenceManager().newSequenceReference(node);
-        }
-    }
-    
 
     private static SelectStatement prependTenantAndViewConstants(PTable table, SelectStatement select, String tenantId, Set<PColumn> addViewColumns, boolean useServerTimestamp) {
         if ((!table.isMultiTenant() || tenantId == null) && table.getViewIndexId() == null && addViewColumns.isEmpty() && !useServerTimestamp) {
@@ -969,7 +876,17 @@ public class UpsertCompiler {
         }
         return SelectStatement.create(select, selectNodes);
     }
-    
+
+    private static LiteralParseNode getNodeForRowTimestampColumn(PColumn col) {
+        PDataType type = col.getDataType();
+        long dummyValue = 0L;
+        if (type.isCoercibleTo(PTimestamp.INSTANCE)) {
+            return new LiteralParseNode(new Timestamp(dummyValue), PTimestamp.INSTANCE);
+        } else if (type == PLong.INSTANCE || type == PUnsignedLong.INSTANCE) {
+            return new LiteralParseNode(dummyValue, PLong.INSTANCE);
+        }
+        throw new IllegalArgumentException();
+    }
     /**
      * Check that none of no columns in our updatable VIEW are changing values.
      * @param tableRef
@@ -999,6 +916,89 @@ public class UpsertCompiler {
                             .build().buildException();
                 }
             }
+        }
+    }
+
+    private static class UpdateColumnCompiler extends ExpressionCompiler {
+        private PColumn column;
+
+        private UpdateColumnCompiler(StatementContext context) {
+            super(context);
+        }
+
+        public void setColumn(PColumn column) {
+            this.column = column;
+        }
+
+        @Override
+        public Expression visit(BindParseNode node) throws SQLException {
+            if (isTopLevel()) {
+                context.getBindManager().addParamMetaData(node, column);
+                Object value = context.getBindManager().getBindValue(node);
+                return LiteralExpression.newConstant(value, column.getDataType(), column.getSortOrder(), Determinism.ALWAYS);
+            }
+            return super.visit(node);
+        }
+
+        @Override
+        public Expression visit(LiteralParseNode node) throws SQLException {
+            if (isTopLevel()) {
+                return LiteralExpression.newConstant(node.getValue(), column.getDataType(), column.getSortOrder(), Determinism.ALWAYS);
+            }
+            return super.visit(node);
+        }
+    }
+
+    private static class UpsertValuesCompiler extends UpdateColumnCompiler {
+        private UpsertValuesCompiler(StatementContext context) {
+            super(context);
+        }
+
+        @Override
+        public Expression visit(SequenceValueParseNode node) throws SQLException {
+            return context.getSequenceManager().newSequenceReference(node);
+        }
+    }
+
+    private static class UpsertingParallelIteratorFactory extends MutatingParallelIteratorFactory {
+        private RowProjector projector;
+        private int[] columnIndexes;
+        private int[] pkSlotIndexes;
+        private final TableRef tableRef;
+        private final boolean useSeverTimestamp;
+
+        private UpsertingParallelIteratorFactory (PhoenixConnection connection, TableRef tableRef, boolean useServerTimestamp) {
+            super(connection);
+            this.tableRef = tableRef;
+            this.useSeverTimestamp = useServerTimestamp;
+        }
+
+        @Override
+        protected MutationState mutate(StatementContext parentContext, ResultIterator iterator, PhoenixConnection connection) throws SQLException {
+            if (parentContext.getSequenceManager().getSequenceCount() > 0) {
+                throw new IllegalStateException("Cannot pipeline upsert when sequence is referenced");
+            }
+            PhoenixStatement statement = new PhoenixStatement(connection);
+            /*
+             * We don't want to collect any read metrics within the child context. This is because any read metrics that
+             * need to be captured are already getting collected in the parent statement context enclosed in the result
+             * iterator being used for reading rows out.
+             */
+            StatementContext childContext = new StatementContext(statement, false);
+            // Clone the row projector as it's not thread safe and would be used simultaneously by
+            // multiple threads otherwise.
+            MutationState state = upsertSelect(childContext, tableRef, projector.cloneIfNecessary(), iterator, columnIndexes, pkSlotIndexes, useSeverTimestamp, false);
+            return state;
+        }
+
+        public void setRowProjector(RowProjector projector) {
+            this.projector = projector;
+        }
+        public void setColumnIndexes(int[] columnIndexes) {
+            this.columnIndexes = columnIndexes;
+        }
+        public void setPkSlotIndexes(int[] pkSlotIndexes) {
+            this.pkSlotIndexes = pkSlotIndexes;
         }
     }
 
@@ -1254,7 +1254,7 @@ public class UpsertCompiler {
                 indexMaintainer = table.getIndexMaintainer(parentTable, connection);
                 viewConstants = IndexUtil.getViewConstants(parentTable);
             }
-            setValues(values, pkSlotIndexes, columnIndexes, table, mutation, statement, useServerTimestamp, indexMaintainer, viewConstants, onDupKeyBytes, 0);
+            UpsertCompiler.setValues(values, pkSlotIndexes, columnIndexes, table, mutation, statement, useServerTimestamp, indexMaintainer, viewConstants, onDupKeyBytes, 0);
             return new MutationState(tableRef, mutation, 0, maxSize, maxSizeBytes, connection);
         }
 
@@ -1396,4 +1396,5 @@ public class UpsertCompiler {
             return queryPlan.getEstimateInfoTimestamp();
         }
     }
+
 }

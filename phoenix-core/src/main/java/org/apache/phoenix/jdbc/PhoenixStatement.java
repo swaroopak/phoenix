@@ -1804,7 +1804,7 @@ public class PhoenixStatement implements Statement, SQLCloseable {
     @Override
     public int executeUpdate(String sql) throws SQLException {
         CompilableStatement stmt = parseStatement(sql);
-        if (!stmt.getOperation().isMutation) {
+        if (!stmt.getOperation().isMutation()) {
             throw new ExecuteUpdateNotApplicableException(sql);
         }
         if (!batch.isEmpty()) {

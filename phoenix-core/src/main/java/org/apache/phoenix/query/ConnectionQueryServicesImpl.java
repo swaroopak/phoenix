@@ -5064,4 +5064,9 @@ public class ConnectionQueryServicesImpl extends DelegateQueryServices implement
     public List<LinkedBlockingQueue<WeakReference<PhoenixConnection>>> getCachedConnections() {
       return connectionQueues;
     }
+
+    public int getMaxMutationSize(){
+        return this.getProps().getInt(QueryServices.MAX_MUTATION_SIZE_ATTRIB,QueryServicesOptions.DEFAULT_MAX_MUTATION_SIZE);
+    }
+
 }
