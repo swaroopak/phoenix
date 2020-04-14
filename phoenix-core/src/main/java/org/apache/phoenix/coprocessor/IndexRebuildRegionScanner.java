@@ -99,7 +99,6 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.Maps;
 
 public class IndexRebuildRegionScanner extends BaseRegionScanner {
-    public static final String ERROR_MESSAGE_MISSING_INDEX_ROW_BEYOND_MAX_LOOKBACK = "Missing index row beyond maxLookBack";
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IndexRebuildRegionScanner.class);
     public static final String NUM_CONCURRENT_INDEX_VERIFY_THREADS_CONF_KEY = "index.verify.threads.max";
@@ -109,6 +108,8 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
     public static final String NO_EXPECTED_MUTATION = "No expected mutation";
     public static final String
             ACTUAL_MUTATION_IS_NULL_OR_EMPTY = "actualMutationList is null or empty";
+    public static final String ERROR_MESSAGE_MISSING_INDEX_ROW_BEYOND_MAX_LOOKBACK = "Missing index row beyond maxLookBack";
+    public static final String ERROR_MESSAGE_MISSING_INDEX_ROW = "Missing index row";
     private long pageSizeInRows = Long.MAX_VALUE;
     private int rowCountPerTask;
     private boolean hasMore;
@@ -847,6 +848,7 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
         indexScan.setFilter(new SkipScanFilter(skipScanFilter, true));
         indexScan.setRaw(true);
         indexScan.setMaxVersions();
+        indexScan.setCacheBlocks(false);
         try (ResultScanner resultScanner = indexHTable.getScanner(indexScan)) {
             for (Result result = resultScanner.next(); (result != null); result = resultScanner.next()) {
                 KeyRange keyRange = PVarbinary.INSTANCE.getKeyRange(result.getRow());
@@ -892,7 +894,7 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
                         setBeyondMaxLookBackMissingIndexRowCount(verificationPhaseResult.getBeyondMaxLookBackMissingIndexRowCount() + 1);
                 }
                 else {
-                    errorMsg = "Missing index row";
+                    errorMsg = ERROR_MESSAGE_MISSING_INDEX_ROW;
                     verificationPhaseResult.setMissingIndexRowCount(verificationPhaseResult.getMissingIndexRowCount() + 1);
                 }
                 byte[] dataKey = indexMaintainer.buildDataRowKey(new ImmutableBytesWritable(keyRange.getLowerRange()), viewConstants);
@@ -914,8 +916,9 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
     }
 
     private boolean isTimestampBeyondMaxLookBack(long currentTime, long tsToCheck){
-        if (!ScanInfoUtil.isMaxLookbackTimeEnabled(maxLookBackInMills))
-            return true;
+        if (!ScanInfoUtil.isMaxLookbackTimeEnabled(maxLookBackInMills)) {
+            return false;
+        }
         return tsToCheck < (currentTime - maxLookBackInMills);
     }
 
