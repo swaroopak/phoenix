@@ -1077,7 +1077,6 @@ public class UngroupedAggregateRegionObserver extends BaseScannerRegionObserver 
             rawScan.setMaxVersions();
             rawScan.getFamilyMap().clear();
             rawScan.setFilter(null);
-            rawScan.setCacheBlocks(false);
             for (byte[] family : scan.getFamilyMap().keySet()) {
                 rawScan.addFamily(family);
             }

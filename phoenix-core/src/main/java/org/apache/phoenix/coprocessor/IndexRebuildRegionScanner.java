@@ -17,6 +17,15 @@
  */
 package org.apache.phoenix.coprocessor;
 
+import static org.apache.phoenix.coprocessor.GlobalIndexScannerHelper.DEFAULT_CONCURRENT_INDEX_VERIFY_THREADS;
+import static org.apache.phoenix.coprocessor.GlobalIndexScannerHelper.DEFAULT_INDEX_VERIFY_ROW_COUNTS_PER_TASK;
+import static org.apache.phoenix.coprocessor.GlobalIndexScannerHelper.INDEX_VERIFY_ROW_COUNTS_PER_TASK_CONF_KEY;
+import static org.apache.phoenix.coprocessor.GlobalIndexScannerHelper.NUM_CONCURRENT_INDEX_VERIFY_THREADS_CONF_KEY;
+import static org.apache.phoenix.coprocessor.GlobalIndexScannerHelper.getIndexRowKey;
+import static org.apache.phoenix.coprocessor.GlobalIndexScannerHelper.getMaxTimestamp;
+import static org.apache.phoenix.coprocessor.GlobalIndexScannerHelper.getTimestamp;
+import static org.apache.phoenix.coprocessor.GlobalIndexScannerHelper.isTimestampBeforeTTL;
+import static org.apache.phoenix.coprocessor.GlobalIndexScannerHelper.isTimestampBeyondMaxLookBack;
 import static org.apache.phoenix.hbase.index.IndexRegionObserver.VERIFIED_BYTES;
 import static org.apache.phoenix.hbase.index.IndexRegionObserver.removeEmptyColumn;
 import static org.apache.phoenix.hbase.index.write.AbstractParallelWriterIndexCommitter.INDEX_WRITER_KEEP_ALIVE_TIME_CONF_KEY;
@@ -101,10 +110,6 @@ import com.google.common.collect.Maps;
 public class IndexRebuildRegionScanner extends BaseRegionScanner {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IndexRebuildRegionScanner.class);
-    public static final String NUM_CONCURRENT_INDEX_VERIFY_THREADS_CONF_KEY = "index.verify.threads.max";
-    private static final int DEFAULT_CONCURRENT_INDEX_VERIFY_THREADS = 17;
-    public static final String INDEX_VERIFY_ROW_COUNTS_PER_TASK_CONF_KEY = "index.verify.threads.max";
-    private static final int DEFAULT_INDEX_VERIFY_ROW_COUNTS_PER_TASK = 2048;
     public static final String NO_EXPECTED_MUTATION = "No expected mutation";
     public static final String
             ACTUAL_MUTATION_IS_NULL_OR_EMPTY = "actualMutationList is null or empty";
@@ -135,7 +140,7 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
     private String exceptionMessage;
     private UngroupedAggregateRegionObserver ungroupedAggregateRegionObserver;
     private HTableFactory hTableFactory;
-    private int indexTableTTL = 0;
+    private static int indexTableTTL = 0;
     private IndexToolVerificationResult verificationResult;
     private boolean isBeforeRebuilt = true;
     private boolean partialRebuild = false;
@@ -337,15 +342,10 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
 
     }
 
-    public byte[] getIndexRowKey(final Put dataRow) throws IOException {
-        ValueGetter valueGetter = new SimpleValueGetter(dataRow);
-        byte[] builtIndexRowKey = indexMaintainer.buildRowKey(valueGetter, new ImmutableBytesWritable(dataRow.getRow()),
-                null, null, HConstants.LATEST_TIMESTAMP);
-        return builtIndexRowKey;
-    }
+
 
     private boolean checkIndexRow(final byte[] indexRowKey, final Put put) throws IOException {
-        byte[] builtIndexRowKey = getIndexRowKey(put);
+        byte[] builtIndexRowKey = getIndexRowKey(indexMaintainer, put);
         if (Bytes.compareTo(builtIndexRowKey, 0, builtIndexRowKey.length,
                 indexRowKey, 0, indexRowKey.length) != 0) {
             return false;
@@ -365,21 +365,6 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
         verificationOutputRepository.logToIndexToolOutputTable(dataRowKey, indexRowKey, dataRowTs, indexRowTs,
                 errorMsg, expectedVaue, actualValue, scan.getTimeRange().getMax(),
             region.getRegionInfo().getTable().getName(), isBeforeRebuilt);
-    }
-
-    private static long getMaxTimestamp(Mutation m) {
-        long ts = 0;
-        for (List<Cell> cells : m.getFamilyCellMap().values()) {
-            if (cells == null) {
-                continue;
-            }
-            for (Cell cell : cells) {
-                if (ts < cell.getTimestamp()) {
-                    ts = cell.getTimestamp();
-                }
-            }
-        }
-        return ts;
     }
 
     private static Cell getCell(Mutation m, byte[] family, byte[] qualifier) {
@@ -523,17 +508,6 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
         for (List<Cell> cells : mutation.getFamilyCellMap().values()) {
             for (Cell cell : cells) {
                 if (KeyValue.Type.codeToType(cell.getTypeByte()) == KeyValue.Type.DeleteFamily) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean isDeleteFamilyVersion(Mutation mutation) {
-        for (List<Cell> cells : mutation.getFamilyCellMap().values()) {
-            for (Cell cell : cells) {
-                if (KeyValue.Type.codeToType(cell.getTypeByte()) == KeyValue.Type.DeleteFamilyVersion) {
                     return true;
                 }
             }
@@ -725,7 +699,7 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
             // get a value back from index if it has already expired between our rebuild and
             // verify
             // TODO: have a metric to update for these cases
-            if (isTimestampBeforeTTL(currentTime, getTimestamp(expected))) {
+            if (isTimestampBeforeTTL(indexTableTTL, currentTime, getTimestamp(expected))) {
                 verificationPhaseResult.setExpiredIndexRowCount(verificationPhaseResult.getExpiredIndexRowCount() + 1);
                 return true;
             }
@@ -783,7 +757,7 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
             return true;
         }
 
-        if (isTimestampBeyondMaxLookBack(currentTime, getTimestamp(expectedMutationList.get(expectedIndex)))){
+        if (isTimestampBeyondMaxLookBack(maxLookBackInMills, currentTime, getTimestamp(expectedMutationList.get(expectedIndex)))) {
             if (expectedIndex > 0) {
                 // if current expected index mutation is beyond max look back window, we only need to make sure its latest
                 // mutation is a matching one, as an SCN query is required.
@@ -823,20 +797,6 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
         }
     }
 
-    private static long getMaxTimestamp(Pair<Put, Delete> pair) {
-        Put put = pair.getFirst();
-        long ts1 = 0;
-        if (put != null) {
-            ts1 = getMaxTimestamp(put);
-        }
-        Delete del = pair.getSecond();
-        long ts2 = 0;
-        if (del != null) {
-            ts1 = getMaxTimestamp(del);
-        }
-        return (ts1 > ts2) ? ts1 : ts2;
-    }
-
     private void verifyIndexRows(List<KeyRange> keys,
             IndexToolVerificationResult.PhaseResult verificationPhaseResult) throws IOException {
         List<KeyRange> invalidKeys = new ArrayList<>();
@@ -848,7 +808,6 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
         indexScan.setFilter(new SkipScanFilter(skipScanFilter, true));
         indexScan.setRaw(true);
         indexScan.setMaxVersions();
-        indexScan.setCacheBlocks(false);
         try (ResultScanner resultScanner = indexHTable.getScanner(indexScan)) {
             for (Result result = resultScanner.next(); (result != null); result = resultScanner.next()) {
                 KeyRange keyRange = PVarbinary.INSTANCE.getKeyRange(result.getRow());
@@ -872,7 +831,7 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
                 KeyRange keyRange = itr.next();
                 byte[] key = keyRange.getLowerRange();
                 List<Mutation> mutationList = indexKeyToMutationMap.get(key);
-                if (isTimestampBeforeTTL(currentTime, getTimestamp(mutationList.get(mutationList.size() - 1)))) {
+                if (isTimestampBeforeTTL(indexTableTTL, currentTime, getTimestamp(mutationList.get(mutationList.size() - 1)))) {
                     itr.remove();
                     verificationPhaseResult.setExpiredIndexRowCount(verificationPhaseResult.getExpiredIndexRowCount() + 1);
                 }
@@ -888,7 +847,7 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
                 }
                 long currentTime = EnvironmentEdgeManager.currentTimeMillis();
                 String errorMsg;
-                if (isTimestampBeyondMaxLookBack(currentTime, getTimestamp(mutation))){
+                if (isTimestampBeyondMaxLookBack(maxLookBackInMills, currentTime, getTimestamp(mutation))){
                     errorMsg = ERROR_MESSAGE_MISSING_INDEX_ROW_BEYOND_MAX_LOOKBACK;
                     verificationPhaseResult.
                         setBeyondMaxLookBackMissingIndexRowCount(verificationPhaseResult.getBeyondMaxLookBackMissingIndexRowCount() + 1);
@@ -906,20 +865,6 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
         }
 
         keys.addAll(invalidKeys);
-    }
-
-    private boolean isTimestampBeforeTTL(long currentTime, long tsToCheck) {
-        if (indexTableTTL == HConstants.FOREVER) {
-            return false;
-        }
-        return tsToCheck < (currentTime - (long) indexTableTTL * 1000);
-    }
-
-    private boolean isTimestampBeyondMaxLookBack(long currentTime, long tsToCheck){
-        if (!ScanInfoUtil.isMaxLookbackTimeEnabled(maxLookBackInMills)) {
-            return false;
-        }
-        return tsToCheck < (currentTime - maxLookBackInMills);
     }
 
     private void addVerifyTask(final List<KeyRange> keys,
@@ -1082,15 +1027,6 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
         }
         byte[] qualifier = CellUtil.cloneQualifier(cell);
         return set.contains(qualifier);
-    }
-
-    public static long getTimestamp(Mutation m) {
-        for (List<Cell> cells : m.getFamilyCellMap().values()) {
-            for (Cell cell : cells) {
-                return cell.getTimestamp();
-            }
-        }
-        throw new IllegalStateException("No cell found");
     }
 
     /**
@@ -1345,7 +1281,7 @@ public class IndexRebuildRegionScanner extends BaseRegionScanner {
             byte[] uuidValue = ServerCacheClient.generateId();
             synchronized (innerScanner) {
                 do {
-                    List<Cell> row = new ArrayList<Cell>();
+                    List<Cell> row = new ArrayList<>();
                     hasMore = innerScanner.nextRaw(row);
                     if (!row.isEmpty()) {
                         lastCell = row.get(0); // lastCell is any cell from the last visited row
