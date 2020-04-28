@@ -919,6 +919,8 @@ public class PTableImpl implements PTable {
                 .setBucketNum(table.getBucketNum())
                 .setIndexes(table.getIndexes() == null ?
                         Collections.<PTable>emptyList() : table.getIndexes())
+                .setViews(table.getViews() == null ?
+                    Collections.<PTable>emptyList() : table.getViews())
                 .setParentSchemaName(table.getParentSchemaName())
                 .setParentTableName(table.getParentTableName())
                 .setPhysicalNames(table.getPhysicalNames() == null ?
@@ -1666,6 +1668,11 @@ public class PTableImpl implements PTable {
             indexes.add(createFromProto(curPTableProto));
         }
 
+        List<PTable> views = Lists.newArrayListWithExpectedSize(table.getViewsCount());
+        for (PTableProtos.PTable curPTableProto : table.getViewsList()) {
+            views.add(createFromProto(curPTableProto));
+        }
+
         boolean isImmutableRows = table.getIsImmutableRows();
         PName parentSchemaName = null;
         PName parentTableName = null;
@@ -1813,6 +1820,7 @@ public class PTableImpl implements PTable {
                     .setRowKeyOrderOptimizable(rowKeyOrderOptimizable)
                     .setBucketNum((bucketNum == NO_SALTING) ? null : bucketNum)
                     .setIndexes(indexes == null ? Collections.<PTable>emptyList() : indexes)
+                    .setViews(views == null ? Collections.<PTable>emptyList() : views)
                     .setParentSchemaName(parentSchemaName)
                     .setParentTableName(parentTableName)
                     .setPhysicalNames(physicalNames == null ?

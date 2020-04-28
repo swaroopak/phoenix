@@ -709,6 +709,10 @@ public interface PTable extends PMetaDataEntity {
      */
     List<PTable> getIndexes();
 
+    /**
+     * Return the list of views defined on this table.
+     * @return the list of views.
+     */
     List<PTable> getViews();
     /**
      * For a table of index type, return the state of the table.

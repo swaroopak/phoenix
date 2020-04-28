@@ -132,6 +132,32 @@ public class PMetaDataImpl implements PMetaData {
                 netGain += newParentTableRef.getEstimatedSize();
             }
         }
+        if (table.getType() == PTableType.VIEW) { // Upsert new index table into parent data table list
+            String parentName = table.getParentName().getString();
+            PTableRef oldParentRef = metaData.get(new PTableKey(table.getTenantId(), parentName));
+            // If parentTable isn't cached, that's ok we can skip this
+            if (oldParentRef != null) {
+                List<PTable> oldViews = oldParentRef.getTable().getViews();
+                List<PTable> newViews = Lists.newArrayListWithExpectedSize(oldViews.size() + 1);
+                newViews.addAll(oldViews);
+                for (int i = 0; i < newViews.size(); i++) {
+                    PTable view = newViews.get(i);
+                    if (view.getName().equals(table.getName())) {
+                        newViews.remove(i);
+                        break;
+                    }
+                }
+                newViews.add(table);
+                netGain -= oldParentRef.getEstimatedSize();
+                newParentTable = PTableImpl.builderWithColumns(oldParentRef.getTable(),
+                        getColumnsToClone(oldParentRef.getTable()))
+                        .setViews(newViews)
+                        .setTimeStamp(table.getTimeStamp())
+                        .build();
+                newParentTableRef = tableRefFactory.makePTableRef(newParentTable, this.timeKeeper.getCurrentTime(), parentResolvedTimestamp);
+                netGain += newParentTableRef.getEstimatedSize();
+            }
+        }
         if (newParentTable == null) { // Don't count in gain if we found a parent table, as its accounted for in newParentTable
             netGain += tableRef.getEstimatedSize();
         }
@@ -165,6 +191,9 @@ public class PMetaDataImpl implements PMetaData {
             for (PTable index : table.getIndexes()) {
                 metaData.remove(index.getKey());
             }
+            for (PTable view : table.getViews()) {
+                metaData.remove(view.getKey());
+            }
             if (table.getParentName() != null) {
                 parentTableRef = metaData.get(new PTableKey(tenantId, table.getParentName().getString()));
             }
@@ -191,6 +220,30 @@ public class PMetaDataImpl implements PMetaData {
                         break;
                     }
                 }
+            }
+        }
+        if (parentTableRef != null) {
+            List<PTable> oldViews = parentTableRef.getTable().getViews();
+            if(oldViews != null && !oldViews.isEmpty()) {
+                List<PTable> newViews = Lists.newArrayListWithExpectedSize(oldViews.size());
+                newViews.addAll(oldViews);
+                for (int i = 0; i < newViews.size(); i++) {
+                    PTable index = newViews.get(i);
+                    if (index.getName().getString().equals(tableName)) {
+                        newViews.remove(i);
+                        PTableImpl.Builder parentTableBuilder =
+                                PTableImpl.builderWithColumns(parentTableRef.getTable(),
+                                        getColumnsToClone(parentTableRef.getTable()))
+                                        .setViews(newViews == null ? Collections.<PTable>emptyList() : newViews);
+                        if (tableTimeStamp != HConstants.LATEST_TIMESTAMP) {
+                            parentTableBuilder.setTimeStamp(tableTimeStamp);
+                        }
+                        PTable parentTable = parentTableBuilder.build();
+                        metaData.put(parentTable.getKey(), tableRefFactory.makePTableRef(parentTable, this.timeKeeper.getCurrentTime(), parentTableRef.getResolvedTimeStamp()));
+                        break;
+                    }
+                }
+
             }
         }
     }

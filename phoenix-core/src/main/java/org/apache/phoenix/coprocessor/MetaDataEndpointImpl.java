@@ -1156,6 +1156,7 @@ public class MetaDataEndpointImpl extends MetaDataProtocol implements Coprocesso
 
         List<PColumn> columns = Lists.newArrayListWithExpectedSize(columnCount);
         List<PTable> indexes = Lists.newArrayList();
+        List<PTable> views = Lists.newArrayList();
         List<PName> physicalTables = Lists.newArrayList();
         PName parentTableName = tableType == INDEX ? dataTableName : null;
         PName parentSchemaName = tableType == INDEX ? schemaName : null;
@@ -1234,6 +1235,7 @@ public class MetaDataEndpointImpl extends MetaDataProtocol implements Coprocesso
                 .setRowKeyOrderOptimizable(rowKeyOrderOptimizable)
                 .setBucketNum(saltBucketNum)
                 .setIndexes(indexes == null ? Collections.<PTable>emptyList() : indexes)
+                .setIndexes(views == null ? Collections.<PTable>emptyList() : views)
                 .setParentSchemaName(parentSchemaName)
                 .setParentTableName(parentTableName)
                 .setPhysicalNames(physicalTables == null ?
@@ -1534,6 +1536,7 @@ public class MetaDataEndpointImpl extends MetaDataProtocol implements Coprocesso
                     .setFamilyAttributes(Collections.<PColumnFamily>emptyList())
                     .setRowKeySchema(RowKeySchema.EMPTY_SCHEMA)
                     .setIndexes(Collections.<PTable>emptyList())
+                    .setViews(Collections.<PTable>emptyList())
                     .setPhysicalNames(Collections.<PName>emptyList())
                     .build();
         } catch (SQLException e) {

@@ -109,6 +109,7 @@ message PTable {
   optional int64 viewTTL = 42;
   optional int64 viewTTLHighWaterMark = 43;
   optional bool viewModifiedViewTTL = 44;
+  repeated PTable views = 45;
 }
 
 message EncodedCQCounter {
