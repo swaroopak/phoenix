@@ -11,12 +11,14 @@ public class TableSchemaTreeNode extends SchemaTreeNode {
 
         this.ddl = tool.extractCreateTableDDL(table);
 
-        // get all indices
         for (PTable index : table.getIndexes()) {
             children.add(new IndexSchemaTreeNode(index, tool));
         }
 
-        // TODO: get all views for this table and add to children
+        for (PTable view : table.getViews()) {
+            children.add(new ViewSchemaTreeNode(view, tool));
+        }
+
         for (SchemaTreeNode node : children) {
             node.visit();
         }

@@ -143,6 +143,10 @@ public class SchemaExtractionToolIT extends BaseTest {
             set.run(args);
             System.out.println(set.output);
             Assert.assertEquals(createIndexStatement.toUpperCase(), set.output.toUpperCase());
+
+            String [] args2 = {"-tb", tableName, "-s", schemaName, "--tree-file", "/tmp/tree.json"};
+            set.run(args2);
+            System.out.println(set.output);
         }
     }
 }

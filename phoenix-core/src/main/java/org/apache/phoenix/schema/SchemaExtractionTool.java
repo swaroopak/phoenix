@@ -113,7 +113,7 @@ public class SchemaExtractionTool extends Configured implements Tool {
         } else if(table.getType().equals(PTableType.INDEX)) {
             node = new IndexSchemaTreeNode(table, this);
         } else if(table.getType().equals(PTableType.VIEW)) {
-
+            node = new ViewSchemaTreeNode(table, this);
         }
         node.visit();
         return node.toJSON().toString(2);

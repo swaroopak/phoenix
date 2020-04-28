@@ -411,6 +411,7 @@ public class FromCompiler {
                     .setAllColumns(Collections.<PColumn>emptyList())
                     .setRowKeySchema(RowKeySchema.EMPTY_SCHEMA)
                     .setIndexes(Collections.<PTable>emptyList())
+                    .setViews(Collections.<PTable>emptyList())
                     .setFamilyAttributes(families)
                     .setPhysicalNames(Collections.<PName>emptyList())
                     .setNamespaceMapped(isNamespaceMapped)
@@ -957,6 +958,7 @@ public class FromCompiler {
                     .setTableName(PName.EMPTY_NAME)
                     .setRowKeyOrderOptimizable(false)
                     .setIndexes(Collections.<PTable>emptyList())
+                    .setViews(Collections.<PTable>emptyList())
                     .setPhysicalNames(ImmutableList.<PName>of())
                     .setColumns(columns)
                     .build();
