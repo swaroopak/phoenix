@@ -43,6 +43,7 @@ public class TableRef {
         try {
             return new TableRef(new PTableImpl.Builder()
                     .setIndexes(Collections.<PTable>emptyList())
+                    .setViews(Collections.<PTable>emptyList())
                     .setPhysicalNames(Collections.<PName>emptyList())
                     .setRowKeySchema(RowKeySchema.EMPTY_SCHEMA)
                     .build());

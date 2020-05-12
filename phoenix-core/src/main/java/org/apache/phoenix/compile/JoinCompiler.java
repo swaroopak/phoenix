@@ -1482,6 +1482,7 @@ public class JoinCompiler {
                 .setRowKeyOrderOptimizable(left.rowKeyOrderOptimizable())
                 .setBucketNum(left.getBucketNum())
                 .setIndexes(left.getIndexes() == null ? Collections.<PTable>emptyList() : left.getIndexes())
+                .setViews(left.getViews() == null ? Collections.<PTable>emptyList() : left.getViews())
                 .setParentSchemaName(left.getParentSchemaName())
                 .setParentTableName(left.getParentTableName())
                 .setPhysicalNames(ImmutableList.<PName>of())

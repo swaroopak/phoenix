@@ -124,6 +124,7 @@ public class UnionCompiler {
                 .setTableName(UNION_TABLE_NAME)
                 .setRowKeyOrderOptimizable(false)
                 .setIndexes(Collections.<PTable>emptyList())
+                .setViews(Collections.<PTable>emptyList())
                 .setPhysicalNames(ImmutableList.<PName>of())
                 .setColumns(projectedColumns)
                 .build();

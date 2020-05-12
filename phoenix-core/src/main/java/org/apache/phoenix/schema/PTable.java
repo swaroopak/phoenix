@@ -56,6 +56,7 @@ public interface PTable extends PMetaDataEntity {
     public static final long INITIAL_SEQ_NUM = 0;
     public static final String IS_IMMUTABLE_ROWS_PROP_NAME = "IMMUTABLE_ROWS";
     public static final boolean DEFAULT_DISABLE_WAL = false;
+    public static final boolean DEFAULT_IMMUTABLE_ROWS = false;
 
     public enum ViewType {
         MAPPED((byte)1),
@@ -709,6 +710,12 @@ public interface PTable extends PMetaDataEntity {
     List<PTable> getIndexes();
 
     /**
+     * Return the list of views defined on this table.
+     * @return the list of views.
+     */
+    List<PTable> getViews();
+
+    /**
      * For a table of index type, return the state of the table.
      * @return the state of the index.
      */
@@ -800,6 +807,8 @@ public interface PTable extends PMetaDataEntity {
     Boolean useStatsForParallelization();
     boolean hasViewModifiedUpdateCacheFrequency();
     boolean hasViewModifiedUseStatsForParallelization();
+    Map<String, String> getValues();
+    Map<String, String> getDefaultValues();
 
     /**
      * @return The VIEW_TTL duration associated with the view.
