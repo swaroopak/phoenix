@@ -221,6 +221,7 @@ public class TupleProjectionCompiler {
                 .setRowKeyOrderOptimizable(table.rowKeyOrderOptimizable())
                 .setBucketNum(table.getBucketNum())
                 .setIndexes(Collections.<PTable>emptyList())
+                .setViews(Collections.<PTable>emptyList())
                 .setPhysicalNames(ImmutableList.<PName>of())
                 .setColumns(projectedColumns)
                 .build();

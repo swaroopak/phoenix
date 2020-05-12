@@ -2761,6 +2761,7 @@ public class MetaDataClient {
                                 PNameFactory.newName(defaultFamilyName))
                         .setRowKeyOrderOptimizable(true)
                         .setIndexes(Collections.<PTable>emptyList())
+                        .setViews(Collections.<PTable>emptyList())
                         .setPhysicalNames(ImmutableList.<PName>of())
                         .setColumns(columns.values())
                         .setViewTTL(VIEW_TTL_NOT_DEFINED)
@@ -3084,6 +3085,7 @@ public class MetaDataClient {
                     .setRowKeyOrderOptimizable(rowKeyOrderOptimizable)
                     .setBucketNum(saltBucketNum)
                     .setIndexes(Collections.<PTable>emptyList())
+                    .setViews(Collections.<PTable>emptyList())
                     .setParentSchemaName((parent == null) ? null : parent.getSchemaName())
                     .setParentTableName((parent == null) ? null : parent.getTableName())
                     .setPhysicalNames(physicalNames == null ?
@@ -3384,6 +3386,7 @@ public class MetaDataClient {
                                         .setAllColumns(Collections.<PColumn>emptyList())
                                         .setRowKeySchema(RowKeySchema.EMPTY_SCHEMA)
                                         .setIndexes(Collections.<PTable>emptyList())
+                                        .setViews(Collections.<PTable>emptyList())
                                         .setFamilyAttributes(table.getColumnFamilies())
                                         .setPhysicalNames(Collections.<PName>emptyList())
                                         .setNamespaceMapped(table.isNamespaceMapped())
@@ -4036,6 +4039,7 @@ public class MetaDataClient {
                                     .setAllColumns(Collections.<PColumn>emptyList())
                                     .setRowKeySchema(RowKeySchema.EMPTY_SCHEMA)
                                     .setIndexes(Collections.<PTable>emptyList())
+                                    .setViews(Collections.<PTable>emptyList())
                                     .setFamilyAttributes(table.getColumnFamilies())
                                     .setPhysicalNames(Collections.<PName>emptyList())
                                     .setNamespaceMapped(table.isNamespaceMapped())
@@ -4366,6 +4370,7 @@ public class MetaDataClient {
                                         .setAllColumns(Collections.<PColumn>emptyList())
                                         .setRowKeySchema(RowKeySchema.EMPTY_SCHEMA)
                                         .setIndexes(Collections.<PTable>emptyList())
+                                        .setViews(Collections.<PTable>emptyList())
                                         .setFamilyAttributes(table.getColumnFamilies())
                                         .setType(PTableType.INDEX)
                                         .setTimeStamp(ts)
@@ -4387,6 +4392,7 @@ public class MetaDataClient {
                                         .setRowKeyOrderOptimizable(false)
                                         .setBucketNum(table.getBucketNum())
                                         .setIndexes(Collections.<PTable>emptyList())
+                                        .setViews(Collections.<PTable>emptyList())
                                         .setPhysicalNames(sharedTableState.getPhysicalNames() == null ?
                                                 ImmutableList.<PName>of() :
                                                 ImmutableList.copyOf(sharedTableState.getPhysicalNames()))

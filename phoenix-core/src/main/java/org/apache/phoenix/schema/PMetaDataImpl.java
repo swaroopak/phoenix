@@ -132,6 +132,32 @@ public class PMetaDataImpl implements PMetaData {
                 netGain += newParentTableRef.getEstimatedSize();
             }
         }
+        if (table.getType() == PTableType.VIEW) { // Upsert new view table into parent data table list
+            String parentName = table.getParentName().getString();
+            PTableRef oldParentRef = metaData.get(new PTableKey(table.getTenantId(), parentName));
+            // If parentTable isn't cached, that's ok we can skip this
+            if (oldParentRef != null) {
+                List<PTable> oldViews = oldParentRef.getTable().getViews();
+                List<PTable> newViews = Lists.newArrayListWithExpectedSize(oldViews.size() + 1);
+                newViews.addAll(oldViews);
+                for (int i = 0; i < newViews.size(); i++) {
+                    PTable view = newViews.get(i);
+                    if (view.getName().equals(table.getName())) {
+                        newViews.remove(i);
+                        break;
+                    }
+                }
+                newViews.add(table);
+                netGain -= oldParentRef.getEstimatedSize();
+                newParentTable = PTableImpl.builderWithColumns(oldParentRef.getTable(),
+                        getColumnsToClone(oldParentRef.getTable()))
+                        .setViews(newViews)
+                        .setTimeStamp(table.getTimeStamp())
+                        .build();
+                newParentTableRef = tableRefFactory.makePTableRef(newParentTable, this.timeKeeper.getCurrentTime(), parentResolvedTimestamp);
+                netGain += newParentTableRef.getEstimatedSize();
+            }
+        }
         if (newParentTable == null) { // Don't count in gain if we found a parent table, as its accounted for in newParentTable
             netGain += tableRef.getEstimatedSize();
         }
@@ -146,6 +172,10 @@ public class PMetaDataImpl implements PMetaData {
         }
         for (PTable index : table.getIndexes()) {
             metaData.put(index.getKey(), tableRefFactory.makePTableRef(index, this.timeKeeper.getCurrentTime(), resolvedTime));
+        }
+
+        for (PTable view : table.getViews()) {
+            metaData.put(view.getKey(), tableRefFactory.makePTableRef(view, this.timeKeeper.getCurrentTime(), resolvedTime));
         }
     }
 

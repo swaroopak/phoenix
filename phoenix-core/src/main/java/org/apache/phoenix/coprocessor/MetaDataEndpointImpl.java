@@ -771,6 +771,19 @@ public class MetaDataEndpointImpl extends MetaDataProtocol implements Coprocesso
         indexes.add(indexTable);
     }
 
+    private void addViewToTable(PName tenantId, PName schemaName, PName viewName, PName tableName,
+            long clientTimeStamp, List<PTable> views, int clientVersion)
+            throws IOException, SQLException {
+        byte[] tenantIdBytes = tenantId == null ? ByteUtil.EMPTY_BYTE_ARRAY : tenantId.getBytes();
+        PTable viewTable = doGetTable(tenantIdBytes, schemaName.getBytes(), viewName.getBytes(), clientTimeStamp,
+                null, clientVersion);
+        if (viewTable == null) {
+            ServerUtil.throwIOException("View not found", new TableNotFoundException(schemaName.getString(), viewName.getString()));
+            return;
+        }
+        views.add(viewTable);
+    }
+
     private void addExcludedColumnToTable(List<PColumn> pColumns, PName colName, PName famName, long timestamp) {
         PColumnImpl pColumn = PColumnImpl.createExcludedColumn(famName, colName, timestamp);
         pColumns.add(pColumn);
@@ -1156,6 +1169,7 @@ public class MetaDataEndpointImpl extends MetaDataProtocol implements Coprocesso
 
         List<PColumn> columns = Lists.newArrayListWithExpectedSize(columnCount);
         List<PTable> indexes = Lists.newArrayList();
+        List<PTable> views = Lists.newArrayList();
         List<PName> physicalTables = Lists.newArrayList();
         PName parentTableName = tableType == INDEX ? dataTableName : null;
         PName parentSchemaName = tableType == INDEX ? schemaName : null;
@@ -1189,6 +1203,8 @@ public class MetaDataEndpointImpl extends MetaDataProtocol implements Coprocesso
                 } else if (linkType == LinkType.EXCLUDED_COLUMN) {
                     // add the excludedColumn
                     addExcludedColumnToTable(columns, colName, famName, colKv.getTimestamp());
+                } else if (linkType == LinkType.CHILD_TABLE) {
+                    addViewToTable(tenantId, schemaName, famName, tableName, clientTimeStamp, views, clientVersion);
                 }
             } else {
                 addColumnToTable(results, colName, famName, colKeyValues, columns, saltBucketNum != null, baseColumnCount, isRegularView);
@@ -1234,6 +1250,7 @@ public class MetaDataEndpointImpl extends MetaDataProtocol implements Coprocesso
                 .setRowKeyOrderOptimizable(rowKeyOrderOptimizable)
                 .setBucketNum(saltBucketNum)
                 .setIndexes(indexes == null ? Collections.<PTable>emptyList() : indexes)
+                .setViews(views == null ? Collections.<PTable>emptyList() : views)
                 .setParentSchemaName(parentSchemaName)
                 .setParentTableName(parentTableName)
                 .setPhysicalNames(physicalTables == null ?
@@ -1534,6 +1551,7 @@ public class MetaDataEndpointImpl extends MetaDataProtocol implements Coprocesso
                     .setFamilyAttributes(Collections.<PColumnFamily>emptyList())
                     .setRowKeySchema(RowKeySchema.EMPTY_SCHEMA)
                     .setIndexes(Collections.<PTable>emptyList())
+                    .setViews(Collections.<PTable>emptyList())
                     .setPhysicalNames(Collections.<PName>emptyList())
                     .build();
         } catch (SQLException e) {
