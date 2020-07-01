@@ -22,6 +22,9 @@ import org.apache.hadoop.util.ToolRunner;
 import org.apache.phoenix.jdbc.PhoenixConnection;
 import org.apache.phoenix.mapreduce.util.ConnectionUtil;
 import org.apache.phoenix.query.ConnectionQueryServices;
+import org.apache.phoenix.query.QueryConstants;
+import org.apache.phoenix.schema.types.PArrayDataType;
+import org.apache.phoenix.schema.types.PCharArray;
 import org.apache.phoenix.util.PhoenixRuntime;
 import org.apache.phoenix.util.SchemaUtil;
 
@@ -164,7 +167,7 @@ public class SchemaExtractionTool extends Configured implements Tool {
                 indexedColumnsBuilder.append(", ");
             }
             indexedColumnsBuilder.append(column);
-            if(sortOrderMap.get(column)!= SortOrder.getDefault()) {
+            if(sortOrderMap.containsKey(column) && sortOrderMap.get(column)!= SortOrder.getDefault()) {
                 indexedColumnsBuilder.append(" ");
                 indexedColumnsBuilder.append(sortOrderMap.get(column));
             }
@@ -177,7 +180,8 @@ public class SchemaExtractionTool extends Configured implements Tool {
         if(columnNameSplit[0].equals("") || columnNameSplit[0].equalsIgnoreCase(defaultCF)) {
             return columnNameSplit[1];
         } else {
-            return columnName.replace(":", ".");
+            return columnNameSplit.length > 1?
+                    String.format("\"%s\".\"%s\"", columnNameSplit[0], columnNameSplit[1]) : columnNameSplit[0];
         }
     }
 
@@ -350,9 +354,8 @@ public class SchemaExtractionTool extends Configured implements Tool {
 
     private String getColumnInfoString(PTable table, PTable baseTable) {
         StringBuilder colInfo = new StringBuilder();
-
-        List<PColumn> columns = table.getColumns();
-        List<PColumn> pkColumns = table.getPKColumns();
+        List<PColumn> columns = table.getBucketNum() == null ? table.getColumns() : table.getColumns().subList(1, table.getColumns().size());
+        List<PColumn> pkColumns = table.getBucketNum() == null ? table.getPKColumns() : table.getColumns().subList(1, table.getPKColumns().size());
 
         if (baseTable != null) {
             Set<PColumn> columnSet = new HashSet<>(columns);
@@ -397,20 +400,49 @@ public class SchemaExtractionTool extends Configured implements Tool {
 
     private String extractColumn(PColumn column) {
         String colName = column.getName().getString();
+        if (column.getFamilyName() != null){
+            String colFamilyName = column.getFamilyName().getString();
+            // check if it is default column family name
+            colName = colFamilyName.equals(QueryConstants.DEFAULT_COLUMN_FAMILY)? colName : String.format("\"%s\".\"%s\"", colFamilyName, colName);
+        }
+        boolean isArrayType = column.getDataType().isArrayType();
         String type = column.getDataType().getSqlTypeName();
+        Integer maxLength = column.getMaxLength();
+        Integer arrSize = column.getArraySize();
+        Integer scale = column.getScale();
         StringBuilder buf = new StringBuilder(colName);
         buf.append(' ');
-        buf.append(type);
-        Integer maxLength = column.getMaxLength();
-        if (maxLength != null) {
-            buf.append('(');
-            buf.append(maxLength);
-            Integer scale = column.getScale();
-            if (scale != null) {
-                buf.append(',');
-                buf.append(scale); // has both max length and scale. For ex- decimal(10,2)
+
+        if (isArrayType) {
+            String arrayPrefix = type.split("\\s+")[0];
+            buf.append(arrayPrefix);
+            if (maxLength != null) {
+                buf.append('(');
+                buf.append(maxLength);
+                if (scale != null) {
+                    buf.append(',');
+                    buf.append(scale); // has both max length and scale. For ex- decimal(10,2)
+                }
+                buf.append(')');
             }
-            buf.append(')');
+            buf.append(' ');
+            buf.append("ARRAY");
+            if (arrSize != null) {
+                buf.append('[');
+                buf.append(arrSize);
+                buf.append(']');
+            }
+        } else {
+            buf.append(type);
+            if (maxLength != null) {
+                buf.append('(');
+                buf.append(maxLength);
+                if (scale != null) {
+                    buf.append(',');
+                    buf.append(scale); // has both max length and scale. For ex- decimal(10,2)
+                }
+                buf.append(')');
+            }
         }
 
         if (!column.isNullable()) {
