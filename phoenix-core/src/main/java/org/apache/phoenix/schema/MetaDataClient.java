@@ -504,7 +504,9 @@ public class MetaDataClient {
                     ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     public static final String EMPTY_TABLE = " ";
-
+    public static final String
+            INCORRECT_INDEX_NAME_S =
+            "The list contains one or more incorrect index name(s)";
 
     private final PhoenixConnection connection;
 
@@ -3637,6 +3639,19 @@ public class MetaDataClient {
             boolean removeTableProps, NamedTableNode namedTableNode, PTableType tableType)
                     throws SQLException {
         connection.rollback();
+        List<PTable> indexesPTable = Lists.newArrayListWithExpectedSize(indexes != null ?
+                indexes.size() : table.getIndexes().size());
+        // if cascade keyword is passed and indexes are provided either implicitly or explicitly
+        if (cascade && (indexes == null || indexes.size()>0)) {
+            if (indexes == null) {
+                indexesPTable = table.getIndexes(table.getType().equals(PTableType.VIEW));
+            } else {
+                indexesPTable = table.getIndexes(indexes);
+                if(indexesPTable == null) {
+                    throw new RuntimeException(INCORRECT_INDEX_NAME_S);
+                }
+            }
+        }
         boolean wasAutoCommit = connection.getAutoCommit();
         List<PColumn> columns = Lists.newArrayListWithExpectedSize(origColumnDefs != null ?
             origColumnDefs.size() : 0);
@@ -3814,6 +3829,13 @@ public class MetaDataClient {
                             }
                             colFamiliesForPColumnsToBeAdded.add(column.getFamilyName() == null ? null : column.getFamilyName().getString());
                             addColumnMutation(schemaName, tableName, column, colUpsert, null, pkName, keySeq, table.getBucketNum() != null);
+                            // add new columns for given indexes one by one
+                            if (cascade) {
+                                for (PTable index: indexesPTable) {
+                                    LOGGER.info("Adding column to "+index.getTableName().toString());
+                                    addColumnMutation(schemaName, index.getTableName().getString(), indexColumn.get(index), colUpsert, null, "", keySeq, index.getBucketNum() != null);
+                                }
+                            }
                         }
                         
                         // Add any new PK columns to end of index PK
@@ -3873,6 +3895,17 @@ public class MetaDataClient {
                     for (PTable index : table.getIndexes()) {
                         incrementTableSeqNum(index, index.getType(), numPkColumnsAdded,
                                 metaProperties.getNonTxToTx() ? Boolean.TRUE : null,
+                                metaPropertiesEvaluated.getUpdateCacheFrequency(),
+                                metaPropertiesEvaluated.getPhoenixTTL());
+                    }
+                    tableMetaData.addAll(connection.getMutationState().toMutations(timeStamp).next().getSecond());
+                    connection.rollback();
+                }
+
+                if (cascade) {
+                    for (PTable index : indexesPTable) {
+                        incrementTableSeqNum(index, index.getType(), columnDefs.size(),
+                                Boolean.FALSE,
                                 metaPropertiesEvaluated.getUpdateCacheFrequency(),
                                 metaPropertiesEvaluated.getPhoenixTTL());
                     }

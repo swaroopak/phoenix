@@ -34,7 +34,7 @@ public class ColumnInfo {
   
     private final Integer precision;
     private final Integer scale;
-    
+
     public static ColumnInfo create(String columnName, int sqlType, Integer maxLength, Integer scale) {
         if(scale != null) {
             assert(maxLength != null); // If we have a scale, we should always have a maxLength
