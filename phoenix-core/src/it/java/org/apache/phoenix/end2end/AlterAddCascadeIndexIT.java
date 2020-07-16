@@ -240,10 +240,6 @@ public class AlterAddCascadeIndexIT extends ParallelStatsDisabledIT {
     // Test with CASCADE INDEX <index_name>, <index_name>
     @Test
     public void testAlterDBOAddCascadeIndexesWithCF() throws Exception {
-        // TODO: until the bug is fixed
-        if(!isViewIndex) {
-            return;
-        }
         ColumnInfo [] columnArray =  {new ColumnInfo("cf.new_column_2", PChar.INSTANCE.getSqlType(), 3)};
         String query = "ALTER " + (isViewIndex ? "VIEW " : "TABLE ")
                 + phoenixObjectName + " ADD cf.new_column_2 CHAR(3) CASCADE INDEX " + indexesName;
@@ -303,6 +299,28 @@ public class AlterAddCascadeIndexIT extends ParallelStatsDisabledIT {
         exception.expectMessage(INCORRECT_INDEX_NAME_S);
         conn.createStatement().execute(query);
         ColumnInfo [] columnArray =  {new ColumnInfo("new_column_1", PFloat.INSTANCE.getSqlType())};
+        //confirm that column counts didn't change
+        if(isViewIndex) {
+            assertDBODefinition(conn, phoenixObjectName, PTableType.VIEW, 5, columnArray);
+            assertDBODefinition(conn, "test.us_population_gv_gi", PTableType.INDEX, 4, columnArray);
+            assertDBODefinition(conn, "test.us_population_gv_gi_2", PTableType.INDEX, 4, columnArray);
+        } else {
+            assertDBODefinition(conn, phoenixObjectName, PTableType.TABLE, 3, columnArray);
+            assertDBODefinition(conn, "test.us_population_gi", PTableType.INDEX, 3, columnArray);
+            assertDBODefinition(conn, "test.us_population_gi_2", PTableType.INDEX, 3, columnArray);
+        }
+    }
+
+    // Exception for incorrect index name
+    @Test
+    public void testAlterDBOFailureScenario() throws Exception {
+        String query = "ALTER " + (isViewIndex ? "VIEW " : "TABLE ")
+                + phoenixObjectName + " ADD new_column_1 DOUBLE CASCADE INDEX "+indexesName;
+        getUtility().getConfiguration().setBoolean("phoenix.client.failure.flag", true);
+    //    exception.expect(RuntimeException.class);
+        conn.createStatement().execute(query);
+        ColumnInfo [] columnArray =  {new ColumnInfo("new_column_1", PFloat.INSTANCE.getSqlType())};
+        //confirm that column counts didn't change
         if(isViewIndex) {
             assertDBODefinition(conn, phoenixObjectName, PTableType.VIEW, 5, columnArray);
             assertDBODefinition(conn, "test.us_population_gv_gi", PTableType.INDEX, 4, columnArray);
@@ -338,7 +356,6 @@ public class AlterAddCascadeIndexIT extends ParallelStatsDisabledIT {
         p.setString(2, tableName.toUpperCase());
         p.setString(3, pTableType.getSerializedValue());
         String output = AlterTableWithViewsIT.getSystemCatalogEntriesForTable(conn, phoenixObjectName, "Mismatch in ColumnCount");
-        System.out.println("sk "+output);
         ResultSet rs = p.executeQuery();
         assertTrue(rs.next());
         assertEquals(output, baseColumnCount, rs.getInt("COLUMN_COUNT"));
