@@ -165,7 +165,7 @@ public class SchemaExtractionToolIT extends ParallelStatsEnabledIT {
     }
 
     @Test
-    public void testCreateTableStatement_tenant() throws Exception {
+    public void testCreateViewStatement_tenant() throws Exception {
         String tableName = generateUniqueName();
         String viewName = generateUniqueName();
         String schemaName = generateUniqueName();
@@ -315,6 +315,41 @@ public class SchemaExtractionToolIT extends ParallelStatsEnabledIT {
             fail("This should not happen!");
         }
         Assert.assertTrue(compareProperties(simplifiedProperties, getProperties(result)));
+    }
+
+    @Test
+    public void testColumnAndPKOrdering() throws Exception {
+        String table = "CREATE TABLE IF NOT EXISTS PLATFORM_ENTITY.PLATFORM_IMMUTABLE_ENTITY_DATA (\n"
+                + "    ORGANIZATION_ID CHAR(15) NOT NULL, \n" + "    KEY_PREFIX CHAR(3) NOT NULL,\n"
+                + "    CREATED_DATE DATE,\n" + "    CREATED_BY CHAR(15),\n"
+                + "    LAST_UPDATE DATE,\n" + "    LAST_UPDATE_BY CHAR(15),\n"
+                + "    SYSTEM_MODSTAMP DATE\n" + "    CONSTRAINT PK PRIMARY KEY (\n"
+                + "        ORGANIZATION_ID, \n" + "        KEY_PREFIX\n" + "    )\n"
+                + ") VERSIONS=1, IMMUTABLE_ROWS=true, MULTI_TENANT=true, REPLICATION_SCOPE=1";
+
+        String view = "CREATE VIEW IF NOT EXISTS PLATFORM_ENTITY.FTEST_H_BASE_INDEXES  (\n"
+                + "    DATE_TIME1 DATE NOT NULL,\n" + "    TEXT1 VARCHAR NOT NULL,\n"
+                + "    INT1 BIGINT NOT NULL,\n" + "    DATE_TIME2 DATE,\n"
+                + "    DATE_TIME3 DATE,\n" + "    INT2 BIGINT,\n" + "    INT3 BIGINT,\n"
+                + "    DOUBLE1 DECIMAL(12, 3),\n" + "    DOUBLE2 DECIMAL(12, 3),\n"
+                + "    DOUBLE3 DECIMAL(12, 3),\n" + "    TEXT2 VARCHAR,\n" + "    TEXT3 VARCHAR,\n"
+                + "    ACCOUNT_LOOKUP1_ID CHAR(15),\n" + "    EMAIL1 VARCHAR,\n"
+                + "    PHONE1 VARCHAR,\n" + "    URL1 VARCHAR\n"
+                + "    CONSTRAINT PKVIEW PRIMARY KEY\n" + "    (\n"
+                + "        DATE_TIME1, TEXT1, INT1\n" + "    )\n" + ")\n"
+                + "AS SELECT * FROM PLATFORM_ENTITY.PLATFORM_IMMUTABLE_ENTITY_DATA WHERE KEY_PREFIX = '9Yj'";
+
+        String index = "CREATE INDEX IF NOT EXISTS FTEST_H_BASE_INDEXES_IE_INDEX1\n"
+                + "ON PLATFORM_ENTITY.FTEST_H_BASE_INDEXES (TEXT1, DATE_TIME1 DESC, DOUBLE1)\n"
+                + "INCLUDE (CREATED_BY, INT2, DOUBLE3, DOUBLE2, DATE_TIME3, CREATED_DATE, DATE_TIME2, TEXT2, URL1, INT3, TEXT3, LAST_UPDATE_BY, EMAIL1, LAST_UPDATE, ACCOUNT_LOOKUP1_ID, SYSTEM_MODSTAMP, PHONE1)";
+        List<String> queries = new ArrayList<String>(){};
+
+        queries.add(table);
+        queries.add(view);
+        queries.add(index);
+        String result = runSchemaExtractionTool("PLATFORM_ENTITY", "FTEST_H_BASE_INDEXES_IE_INDEX1", null, queries);
+        System.out.println(result);
+
     }
 
     @Test
